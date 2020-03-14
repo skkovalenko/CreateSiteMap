@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration status="WARN">
+    <appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+        </Console>
+
+        <File name="Exceptions" fileName="logs/http_status_exceptions.log">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+            <Filters>
+                <MarkerFilter marker="EXCEPTIONS"/>
+            </Filters>
+        </File>
+
+
+    </appenders>
+
+    <loggers>
+        <root level="warn">
+            <appender-ref ref="Exceptions"/>
+        </root>
+    </loggers>
+</configuration>
