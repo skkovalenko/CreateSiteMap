@@ -1,3 +1,5 @@
+import data.Child;
+import data.Parent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.Marker;
@@ -7,11 +9,8 @@ import org.jsoup.Jsoup;
 import org.jsoup.select.Elements;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.*;
-import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 public class Task extends RecursiveAction {
@@ -20,11 +19,9 @@ public class Task extends RecursiveAction {
     private static final Marker EXCEPTION_M = MarkerManager.getMarker("EXCEPTIONS");
     private static final String USER_AGENT = "Mozilla/5.0";
     private static final String REG_FOR_URL = "/.+/$";
-    private static final String TAB = "    ";
-    //дабы ссылки не повторялись
-    private static  Set<String> bufferPathSet = Collections.synchronizedSet(new HashSet<>());
-    private static Path pathSiteMap;
-    //глубина сайта
+
+    private static Set<Parent> parentsSet = new CopyOnWriteArraySet<>();
+
     private int depthCount;
     private String startURL;
     private Elements elements;
@@ -38,26 +35,70 @@ public class Task extends RecursiveAction {
         this.startURL = startURL;
     }
 
-    public static void setPath(Path path) {
-        Task.pathSiteMap = path;
+    public static Set<Parent> getParentsSet() {
+        return parentsSet;
     }
 
     @Override
     protected void compute() {
+        if(connectAndGetElements()) {
+            return;
+        }
+        String domain = splitAddressSite();
+        Parent parentUrl = new Parent(startURL, depthCount);
+        Set<String> buffer = parseElements(domain);
+        elements = null;
+        if(buffer.isEmpty()) {
+            return;
+        }
+        bufferCleanDoubleUrl(buffer);
+        if(buffer.isEmpty()){
+            return;
+        }
+        synchronized (this){
+            parentsSet.add(parentUrl);
+        }
+        parentUrl.createChildrenSet(buffer);
+        Set<Task> tasks = new HashSet<>();
+        depthCount++;
+        for(Child child : parentUrl.getChildrenSet()){
+            Task task = new Task(child.getUrl(), depthCount);
+            tasks.add(task);
+        }
+        tasks.forEach(ForkJoinTask::fork);
+        tasks.forEach(ForkJoinTask::join);
+    }
+    private void bufferCleanDoubleUrl(Set<String> buffer){
+        if(!parentsSet.isEmpty()){
+            for(Parent parent : parentsSet){
+                if(parent.getDepth() < depthCount){
+                    buffer.remove(parent.getUrl());
+                    if(parent.getChildrenSet() != null){
+                        for(Child child : parent.getChildrenSet()){
+                            buffer.remove(child.getUrl());
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+    private boolean connectAndGetElements(){
         try {
-            //Thread.sleep(300);
+            Thread.sleep(300);
             elements = Jsoup.connect(startURL).userAgent(USER_AGENT).maxBodySize(0).get().select("a");
         }catch (HttpStatusException e){
             LOGGER.warn(EXCEPTION_M, e.getUrl(), e);
-            return;
+            return true;
         }
-        catch (IOException  e) {
+        catch (IOException | InterruptedException e) {
             e.printStackTrace();
+            return true;
         }
-        //Выпиливаем домен
-        String domain = splitAddressSite();
-        //Собрать все внутренние ссылки не повтаряющиеся
-        Set<String> buffer = elements.stream()
+        return false;
+    }
+    private Set<String> parseElements(String domain){
+        return elements.stream()
                 .map(element -> element.attr("href"))
                 .filter(s -> s.matches(domain + REG_FOR_URL) || s.matches("^" + REG_FOR_URL))
                 .map(s -> {
@@ -65,42 +106,7 @@ public class Task extends RecursiveAction {
                         return domain + s;
                     }else return s;
                 }).collect(Collectors.toSet());
-        //экономим память
-        elements.clear();
-        elements = null;
-        try {
-            //Запись ссылки в файл
-
-            Files.writeString(pathSiteMap, TAB.repeat(depthCount) + startURL + "\n", StandardOpenOption.WRITE, StandardOpenOption.APPEND);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-            if (buffer.isEmpty()) {
-                return;
-            }
-            //сет из новых внутренних ссылок
-            Set<String> newPathSet = buffer.stream().filter(s -> !bufferPathSet.contains(s)).collect(Collectors.toSet());
-            //ремувим то, что уже было в буфере ссылок
-            buffer.removeIf(s -> bufferPathSet.contains(s));
-            if (buffer.isEmpty()) {
-                return;
-            }
-            //добавляем новые ссылки в буфер ссылок
-            bufferPathSet.addAll(buffer);
-            // Итератор, чтобы можн было удалять элементы сета в цикле
-            depthCount++;
-            Iterator<String> iterator = buffer.iterator();
-            while (iterator.hasNext()) {
-                Task task = new Task(iterator.next(), depthCount);
-                task.fork();
-                task.join();
-                iterator.remove();//экономим память
-            }
-            //удаляем новые ссылки из статического буфера ссылок, чтобы в новом дереве они снова отоброжались
-            bufferPathSet.removeAll(newPathSet);
-
     }
-
     private String splitAddressSite(){
         int countChar = 0;
         int endIndex = 0;
