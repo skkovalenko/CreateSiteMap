@@ -12,12 +12,12 @@ public class Main {
         private static final int DEPTH_START = 0;
         public static void main(String[] args) throws IOException {
                 Path path = Paths.get(pathSiteMap);
-                ForkJoinPool forkJoinPool = new ForkJoinPool(7);
+                ForkJoinPool forkJoinPool = new ForkJoinPool(10);
                 forkJoinPool.invoke(new Task(pathSkillBox));
-                WriterSiteMap writerSiteMap = new WriterSiteMap(Task.getParentsSet(), path);
+                WriterSiteMap writerSiteMap = new WriterSiteMap(Task.getPagesSet(), path);
 
                 writerSiteMap.recursiveWrite(pathSkillBox, DEPTH_START);
-                System.out.println(Task.getParentsSet().size());
+                System.out.println(Task.getPagesSet().size());
 
 
         }

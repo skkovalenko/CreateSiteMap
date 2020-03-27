@@ -1,5 +1,5 @@
-import data.Child;
-import data.Parent;
+
+import data.Page;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.Marker;
@@ -20,7 +20,7 @@ public class Task extends RecursiveAction {
     private static final String USER_AGENT = "Mozilla/5.0";
     private static final String REG_FOR_URL = "/.+/$";
 
-    private static Set<Parent> parentsSet = new CopyOnWriteArraySet<>();
+    private static Set<Page> pagesSet = new CopyOnWriteArraySet<>();
 
     private int depthCount;
     private String startURL;
@@ -29,14 +29,13 @@ public class Task extends RecursiveAction {
     public Task(String startURL) {
         this.startURL = startURL;
     }
-
     public Task(String startURL, int depthCount) {
         this.depthCount = depthCount;
         this.startURL = startURL;
     }
 
-    public static Set<Parent> getParentsSet() {
-        return parentsSet;
+    public static Set<Page> getPagesSet() {
+        return pagesSet;
     }
 
     @Override
@@ -45,7 +44,8 @@ public class Task extends RecursiveAction {
             return;
         }
         String domain = splitAddressSite();
-        Parent parentUrl = new Parent(startURL, depthCount);
+        Page pageUrl = new Page(startURL, depthCount);
+        pagesSet.add(pageUrl);
         Set<String> buffer = parseElements(domain);
         elements = null;
         if(buffer.isEmpty()) {
@@ -55,29 +55,26 @@ public class Task extends RecursiveAction {
         if(buffer.isEmpty()){
             return;
         }
-        synchronized (this){
-            parentsSet.add(parentUrl);
-        }
-        parentUrl.createChildrenSet(buffer);
+        pageUrl.createChildrenSet(buffer);
         Set<Task> tasks = new HashSet<>();
         depthCount++;
-        for(Child child : parentUrl.getChildrenSet()){
-            Task task = new Task(child.getUrl(), depthCount);
+        for(Page childPage : pageUrl.getChildrenSet()){
+            Task task = new Task(childPage.getUrl(), depthCount);
             tasks.add(task);
         }
         tasks.forEach(ForkJoinTask::fork);
         tasks.forEach(ForkJoinTask::join);
     }
-    private void bufferCleanDoubleUrl(Set<String> buffer){
-        if(!parentsSet.isEmpty()){
-            for(Parent parent : parentsSet){
-                if(parent.getDepth() < depthCount){
-                    buffer.remove(parent.getUrl());
-                    if(parent.getChildrenSet() != null){
-                        for(Child child : parent.getChildrenSet()){
-                            buffer.remove(child.getUrl());
-                        }
 
+    private void bufferCleanDoubleUrl(Set<String> buffer){
+        if(!pagesSet.isEmpty()){
+            for(Page page : pagesSet){
+                if(page.getDepth() < depthCount){
+                    buffer.remove(page.getUrl());
+                    if(page.getChildrenSet() != null){
+                        for(Page childPage : page.getChildrenSet()){
+                            buffer.remove(childPage.getUrl());
+                        }
                     }
                 }
             }
@@ -92,7 +89,7 @@ public class Task extends RecursiveAction {
             return true;
         }
         catch (IOException | InterruptedException e) {
-            e.printStackTrace();
+            LOGGER.warn(EXCEPTION_M, e.getMessage(), e);
             return true;
         }
         return false;
