@@ -21,17 +21,20 @@ public class Task extends RecursiveAction {
     private static final String REG_FOR_URL = "/.+/$";
 
     private static Set<Page> pagesSet = new CopyOnWriteArraySet<>();
+    private static Set<String> bufferUrl = new CopyOnWriteArraySet<>();
+    private static String domain;
 
     private int depthCount;
-    private String startURL;
+    private String startUrl;
     private Elements elements;
 
-    public Task(String startURL) {
-        this.startURL = startURL;
+    public Task(String startUrl) {
+        domain = splitAddressSite(startUrl);
+        this.startUrl = startUrl;
     }
-    public Task(String startURL, int depthCount) {
+    public Task(String startUrl, int depthCount) {
         this.depthCount = depthCount;
-        this.startURL = startURL;
+        this.startUrl = startUrl;
     }
 
     public static Set<Page> getPagesSet() {
@@ -40,61 +43,42 @@ public class Task extends RecursiveAction {
 
     @Override
     protected void compute() {
-        if(connectAndGetElements()) {
-            return;
-        }
-        String domain = splitAddressSite();
-        Page pageUrl = new Page(startURL, depthCount);
-        pagesSet.add(pageUrl);
-        Set<String> buffer = parseElements(domain);
+        Page pageParent = new Page(startUrl, depthCount);
+        pagesSet.add(pageParent);
+        bufferUrl.add(startUrl);
+        if(connectAndGetElements()) return;
+        Set<String> childrenPageUrl = parseElements();
         elements = null;
-        if(buffer.isEmpty()) {
-            return;
-        }
-        bufferCleanDoubleUrl(buffer);
-        if(buffer.isEmpty()){
-            return;
-        }
-        pageUrl.createChildrenSet(buffer);
+        if(childrenPageUrl.isEmpty()) return;
+        childrenPageUrl.removeIf(s -> bufferUrl.contains(s));
+        pageParent.createChildrenSet(childrenPageUrl);
+        if(childrenPageUrl.isEmpty()) return;
+        bufferUrl.addAll(childrenPageUrl);
         Set<Task> tasks = new HashSet<>();
         depthCount++;
-        for(Page childPage : pageUrl.getChildrenSet()){
-            Task task = new Task(childPage.getUrl(), depthCount);
+        for(String urlBuff : childrenPageUrl){
+            Task task = new Task(urlBuff, depthCount);
             tasks.add(task);
         }
         tasks.forEach(ForkJoinTask::fork);
         tasks.forEach(ForkJoinTask::join);
     }
-
-    private void bufferCleanDoubleUrl(Set<String> buffer){
-        if(!pagesSet.isEmpty()){
-            for(Page page : pagesSet){
-                if(page.getDepth() < depthCount){
-                    buffer.remove(page.getUrl());
-                    if(page.getChildrenSet() != null){
-                        for(Page childPage : page.getChildrenSet()){
-                            buffer.remove(childPage.getUrl());
-                        }
-                    }
-                }
-            }
-        }
-    }
     private boolean connectAndGetElements(){
         try {
             Thread.sleep(300);
-            elements = Jsoup.connect(startURL).userAgent(USER_AGENT).maxBodySize(0).get().select("a");
+            elements = Jsoup.connect(startUrl).userAgent(USER_AGENT).maxBodySize(0).get().select("a");
         }catch (HttpStatusException e){
-            LOGGER.warn(EXCEPTION_M, e.getUrl(), e);
+            LOGGER.warn(EXCEPTION_M, e.getUrl());
             return true;
         }
         catch (IOException | InterruptedException e) {
-            LOGGER.warn(EXCEPTION_M, e.getMessage(), e);
-            return true;
+            connectAndGetElements();
+            LOGGER.warn(EXCEPTION_M, e.getMessage());
+            return false;
         }
         return false;
     }
-    private Set<String> parseElements(String domain){
+    private Set<String> parseElements(){
         return elements.stream()
                 .map(element -> element.attr("href"))
                 .filter(s -> s.matches(domain + REG_FOR_URL) || s.matches("^" + REG_FOR_URL))
@@ -104,7 +88,7 @@ public class Task extends RecursiveAction {
                     }else return s;
                 }).collect(Collectors.toSet());
     }
-    private String splitAddressSite(){
+    private String splitAddressSite(String startURL){
         int countChar = 0;
         int endIndex = 0;
         for(int i = 0; i < startURL.length(); i++){

@@ -31,9 +31,9 @@ public class WriterSiteMap {
         if(page.getChildrenSet() == null || page.getChildrenSet().isEmpty()){
             return;
         }
-        int d = depth + 1;
+        depth++;
         for(Page childPage : page.getChildrenSet()){
-            recursiveWrite(childPage.getUrl(), d);
+            recursiveWrite(childPage.getUrl(), depth);
         }
     }
 
